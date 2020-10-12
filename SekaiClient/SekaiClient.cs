@@ -7,6 +7,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
@@ -145,7 +146,7 @@ namespace SekaiClient
             };
         }
 
-        public void PassTutorial()
+        public void PassTutorial(bool simplified = false)
         {
             //bypass turtorials
             CallUserApi($"/tutorial", HttpMethod.Patch, new JObject { ["tutorialStatus"] = "opening_1" });
@@ -157,7 +158,7 @@ namespace SekaiClient
             var presents = CallUserApi($"/home/refresh", HttpMethod.Put, new JObject { ["refreshableTypes"] = new JArray("login_bonus") })["updatedResources"]["userPresents"]
                 .Select(t => t.Value<string>("presentId")).ToArray(); ;
             CallUserApi($"/tutorial", HttpMethod.Patch, new JObject { ["tutorialStatus"] = "end" });
-
+            if (simplified) return;
             var episodes = new int[] { 50000, 50001, 40000, 40001, 30000, 30001, 20000, 20001, 60000, 60001, 4, 8, 12, 16, 20 };
             foreach (var episode in episodes)
                 CallUserApi($"/story/unit_story/episode/{episode}", HttpMethod.Post, null);
@@ -197,7 +198,7 @@ namespace SekaiClient
             DebugWrite($"gacha result:\n" + string.Join('\n', desc));
             int[] rares = new int[5];
             foreach (var card in cards) ++rares[card.rarity];
-            if (rares[4] > 0)
+            if (rares[4] > 1)
                 Console.WriteLine($"gacha result: {rares[4]}, {rares[3]}, {rares[2]}");
             return cards.Sum(card => card.rarity == 4 ? 1 : 0) > 2 ? desc : null;
         }
@@ -213,5 +214,57 @@ namespace SekaiClient
             password = password,
             cards = cards
         };
+
+        public void APLive(int musicId, int boostCount, int deckId, string musicDifficulty = "expert")
+        {
+            var music = MasterData.musics[musicId.ToString()];
+            var md = music.musicDifficulties.Single(md => md.musicDifficulty == musicDifficulty);
+            var liveid = CallUserApi("/live", HttpMethod.Post, new JObject
+            {
+                ["musicId"] = musicId,
+                ["musicDifficultyId"] = md.id,
+                ["musicVocalId"] = music.musicVocals.First().id,
+                ["deckId"] = deckId,
+                ["boostCount"] = boostCount
+            })["userLiveId"];
+            var result = CallUserApi("/live/" + liveid, HttpMethod.Put, new JObject
+            {
+                ["score"] = 1000000,
+                ["perfectCount"] = md.noteCount,
+                ["greatCount"] = 0,
+                ["goodCount"] = 0,
+                ["badCount"] = 0,
+                ["missCount"] = 0,
+                ["maxCombo"] = md.noteCount,
+                ["life"] = 1000,
+                ["tapCount"] = md.noteCount,
+                ["continueCount"] = 0
+            });
+
+            DebugWrite($"ap live done, now pt = {result["afterEventPoint"]}, currency = {result["updatedResources"]["user"]["userGamedata"]["chargedCurrency"]["free"]}" );
+        }
+
+        public int[] GetCards()
+        {
+            var data = CallApi($"/suite/user/{uid}", HttpMethod.Get, null);
+
+            return data["userCards"].Select(t => t.Value<int>("cardId")).ToArray();
+        }
+
+        public void ChangeDeck(int deckId, int[] cardIds)
+        {
+            CallUserApi("/deck/" + deckId, HttpMethod.Put, new JObject
+            {
+                ["userId"] = uid,
+                ["deckId"] = deckId,
+                ["name"] = "deck" + deckId,
+                ["leader"] = cardIds[0],
+                ["member1"] = cardIds[0],
+                ["member2"] = cardIds[1],
+                ["member3"] = cardIds[2],
+                ["member4"] = cardIds[3],
+                ["member5"] = cardIds[4],
+            });
+        }
     }
 }

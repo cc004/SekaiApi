@@ -8,6 +8,30 @@ using System.Text;
 namespace SekaiClient.Datas
 {
     [JsonObject]
+    public class MusicInfo
+    {
+
+    }
+    [JsonObject]
+    public class MusicDifficulty
+    {
+        public string musicDifficulty;
+        public int noteCount, id;
+    }
+    [JsonObject]
+    public class MusicVocal
+    {
+        public int id;
+    }
+    [JsonObject]
+    public class Music
+    {
+        public MusicInfo music;
+        public MusicDifficulty[] musicDifficulties;
+        public MusicVocal[] musicVocals;
+    }
+
+    [JsonObject]
     public class Card
     {
         public int characterId, rarity, skillId;
@@ -28,9 +52,10 @@ namespace SekaiClient.Datas
 
     public static class MasterData
     {
-        public static Dictionary<string, Character> characters;
-        public static Dictionary<string, Card> cards;
-        public static Dictionary<string, Skill> skills;
+        public static readonly Dictionary<string, Character> characters;
+        public static readonly Dictionary<string, Card> cards;
+        public static readonly Dictionary<string, Skill> skills;
+        public static readonly Dictionary<string, Music> musics;
 
         static MasterData()
         {
@@ -38,6 +63,7 @@ namespace SekaiClient.Datas
             characters = master["gameCharacters"].ToObject<Dictionary<string, Character>>();
             cards = master["cards"].ToObject<Dictionary<string, Card>>();
             skills = master["skills"].ToObject<Dictionary<string, Skill>>();
+            musics = master["musicAlls"].ToObject<Dictionary<string, Music>>();
         }
     }
 }
