@@ -29,6 +29,9 @@ namespace SekaiClient
         };
 
         private const string urlroot = "http://production-game-api.sekai.colorfulpalette.org/api";
+        private const string urlroot2 = "https://production-game-api.sekai.colorfulpalette.org/api";
+
+        private bool connected = false;
         private readonly HttpClient client;
         private readonly EnvironmentInfo environment;
         private string adid, uid, token;
@@ -49,7 +52,7 @@ namespace SekaiClient
             environment = info;
         }
 
-        public JToken CallApi(string apiurl, HttpMethod method, JObject content)
+        public async Task<JToken> CallApi(string apiurl, HttpMethod method, JObject content)
         {
             var tick = DateTime.Now.Ticks;
 
@@ -60,23 +63,25 @@ namespace SekaiClient
             var body = new ByteArrayContent(PackHelper.Pack(content));
             body.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
 
-            var resp = client.SendAsync(new HttpRequestMessage(method, urlroot + apiurl)
+            var resp = await client.SendAsync(new HttpRequestMessage(method, (connected ? urlroot2 : urlroot) + apiurl)
             {
                 Content = body
-            }).Result;
+            });
 
             var nextToken = resp.Headers.Contains("X-Session-Token") ? resp.Headers.GetValues("X-Session-Token").Single() : null;
             if (nextToken != null) token = nextToken;
-            var result = PackHelper.Unpack(resp.Content.ReadAsByteArrayAsync().Result);
+            var result = PackHelper.Unpack(await resp.Content.ReadAsByteArrayAsync());
 
             client.DefaultRequestHeaders.Remove("X-Session-Token");
             client.DefaultRequestHeaders.Remove("X-Request-Id");
+            connected = true;
+
             DebugWrite(apiurl + $" called, {(DateTime.Now.Ticks - tick) / 1000 / 10.0} ms elapsed");
             return result;
         }
 
-        public JToken CallUserApi(string apiurl, HttpMethod method, JObject content)
-            => CallApi($"/user/{uid}" + apiurl, method, content);
+        public async Task<JToken> CallUserApi(string apiurl, HttpMethod method, JObject content)
+            => await CallApi($"/user/{uid}" + apiurl, method, content);
 
         public void InitializeAdid()
         {
@@ -109,10 +114,10 @@ namespace SekaiClient
             client.DefaultRequestHeaders.TryAddWithoutValidation("X-AI", adid);
         }
 
-        public void Login(User user)
+        public async Task Login(User user)
         {
             uid = user.uid;
-            var json = CallUserApi($"/auth?refreshUpdatedResources=False", HttpMethod.Put, new JObject
+            var json = await CallUserApi($"/auth?refreshUpdatedResources=False", HttpMethod.Put, new JObject
             {
                 ["credential"] = user.credit
             });
@@ -120,9 +125,9 @@ namespace SekaiClient
             DebugWrite($"authenticated as {user.uid}");
         }
 
-        public User Register()
+        public async Task<User> Register()
         {
-            var json = CallApi("/user", HttpMethod.Post, environment.CreateRegister());
+            var json = await CallApi("/user", HttpMethod.Post, environment.CreateRegister());
             var uid = json["userRegistration"]["userId"].ToString();
             var credit = json["credential"].ToString();
             DebugWrite($"registered user {uid}");
@@ -134,42 +139,42 @@ namespace SekaiClient
             };
         }
 
-        public void PassTutorial(bool simplified = false)
+        public async Task PassTutorial(bool simplified = false)
         {
             //bypass turtorials
-            CallUserApi($"/tutorial", HttpMethod.Patch, new JObject { ["tutorialStatus"] = "opening_1" });
-            CallUserApi($"/tutorial", HttpMethod.Patch, new JObject { ["tutorialStatus"] = "gameplay" });
-            CallUserApi($"/tutorial", HttpMethod.Patch, new JObject { ["tutorialStatus"] = "opening_2" });
-            CallUserApi($"/tutorial", HttpMethod.Patch, new JObject { ["tutorialStatus"] = "unit_select" });
-            CallUserApi($"/tutorial", HttpMethod.Patch, new JObject { ["tutorialStatus"] = "idol_opening" });
-            CallUserApi($"/tutorial", HttpMethod.Patch, new JObject { ["tutorialStatus"] = "summary" });
-            var presents = CallUserApi($"/home/refresh", HttpMethod.Put, new JObject { ["refreshableTypes"] = new JArray("login_bonus") })["updatedResources"]["userPresents"]
+            await CallUserApi($"/tutorial", HttpMethod.Patch, new JObject { ["tutorialStatus"] = "opening_1" });
+            await CallUserApi($"/tutorial", HttpMethod.Patch, new JObject { ["tutorialStatus"] = "gameplay" });
+            await CallUserApi($"/tutorial", HttpMethod.Patch, new JObject { ["tutorialStatus"] = "opening_2" });
+            await CallUserApi($"/tutorial", HttpMethod.Patch, new JObject { ["tutorialStatus"] = "unit_select" });
+            await CallUserApi($"/tutorial", HttpMethod.Patch, new JObject { ["tutorialStatus"] = "idol_opening" });
+            await CallUserApi($"/tutorial", HttpMethod.Patch, new JObject { ["tutorialStatus"] = "summary" });
+            var presents = (await CallUserApi($"/home/refresh", HttpMethod.Put, new JObject { ["refreshableTypes"] = new JArray("login_bonus") }))["updatedResources"]["userPresents"]
                 .Select(t => t.Value<string>("presentId")).ToArray(); ;
-            CallUserApi($"/tutorial", HttpMethod.Patch, new JObject { ["tutorialStatus"] = "end" });
+            await CallUserApi($"/tutorial", HttpMethod.Patch, new JObject { ["tutorialStatus"] = "end" });
             if (simplified) return;
             var episodes = new int[] { 50000, 50001, 40000, 40001, 30000, 30001, 20000, 20001, 60000, 60001, 4, 8, 12, 16, 20 };
             foreach (var episode in episodes)
-                CallUserApi($"/story/unit_story/episode/{episode}", HttpMethod.Post, null);
-            CallUserApi($"/present", HttpMethod.Post, new JObject { ["presentIds"] = new JArray(presents) });
-            CallUserApi($"/costume-3d-shop/20006", HttpMethod.Post, null);
-            CallUserApi($"/shop/2/item/10012", HttpMethod.Post, null);
-            var currency = CallUserApi($"/mission/beginner_mission", HttpMethod.Put, new JObject
+                await CallUserApi($"/story/unit_story/episode/{episode}", HttpMethod.Post, null);
+            await CallUserApi($"/present", HttpMethod.Post, new JObject { ["presentIds"] = new JArray(presents) });
+            await CallUserApi($"/costume-3d-shop/20006", HttpMethod.Post, null);
+            await CallUserApi($"/shop/2/item/10012", HttpMethod.Post, null);
+            var currency = (await CallUserApi($"/mission/beginner_mission", HttpMethod.Put, new JObject
             {
                 ["missionIds"] = new JArray(1, 2, 3, 4, 5, 6, 8, 10)
-            })["updatedResources"]["user"]["userGamedata"]["chargedCurrency"]["free"];
+            }))["updatedResources"]["user"]["userGamedata"]["chargedCurrency"]["free"];
 
             DebugWrite($"present received, now currency = {currency}");
         }
 
-        public string[] Gacha()
+        public async Task<string[]> Gacha()
         {
             IEnumerable<Card> icards = new Card[0];
-            icards = icards.Concat(CallUserApi("/gacha/4/gachaBehaviorId/8", HttpMethod.Put, null)["obtainPrizes"]
+            icards = icards.Concat((await CallUserApi("/gacha/4/gachaBehaviorId/8", HttpMethod.Put, null))["obtainPrizes"]
                 .Select(t => MasterData.cards[t["card"].Value<int>("resourceId").ToString()]));
             for (int i = 0; i < 6; ++i)
-            icards = icards.Concat(CallUserApi("/gacha/4/gachaBehaviorId/7", HttpMethod.Put, null)["obtainPrizes"]
+            icards = icards.Concat((await CallUserApi("/gacha/4/gachaBehaviorId/7", HttpMethod.Put, null))["obtainPrizes"]
                 .Select(t => MasterData.cards[t["card"].Value<int>("resourceId").ToString()]));
-            icards = icards.Concat(CallUserApi("/gacha/2/gachaBehaviorId/4", HttpMethod.Put, null)["obtainPrizes"]
+            icards = icards.Concat((await CallUserApi("/gacha/2/gachaBehaviorId/4", HttpMethod.Put, null))["obtainPrizes"]
                 .Select(t => MasterData.cards[t["card"].Value<int>("resourceId").ToString()]));
 
             var cards = icards.ToArray();
@@ -191,31 +196,31 @@ namespace SekaiClient
             return cards.Sum(card => card.rarity == 4 ? 1 : 0) > 2 ? desc : null;
         }
 
-        public string Inherit(string password)
+        public async Task<string> Inherit(string password)
         {
-            return CallUserApi("/inherit", HttpMethod.Put, new JObject { ["password"] = password })["userInherit"].Value<string>("inheritId");
+            return (await CallUserApi("/inherit", HttpMethod.Put, new JObject { ["password"] = password }))["userInherit"].Value<string>("inheritId");
         }
 
-        public Account Serialize(string[] cards, string password = "1176321897") => new Account
+        public async Task<Account> Serialize(string[] cards, string password = "1176321897") => new Account
         {
-            inheritId = Inherit(password),
+            inheritId = await Inherit(password),
             password = password,
             cards = cards
         };
 
-        public int APLive(int musicId, int boostCount, int deckId, string musicDifficulty = "expert", int score=100000000)
+        public async Task<int> APLive(int musicId, int boostCount, int deckId, string musicDifficulty = "expert", int score=100000000)
         {
             var music = MasterData.musics[musicId.ToString()];
             var md = music.musicDifficulties.Single(md => md.musicDifficulty == musicDifficulty);
-            var liveid = CallUserApi("/live", HttpMethod.Post, new JObject
+            var liveid = (await CallUserApi("/live", HttpMethod.Post, new JObject
             {
                 ["musicId"] = musicId,
                 ["musicDifficultyId"] = md.id,
                 ["musicVocalId"] = music.musicVocals.First().id,
                 ["deckId"] = deckId,
                 ["boostCount"] = boostCount
-            })["userLiveId"];
-            var result = CallUserApi("/live/" + liveid, HttpMethod.Put, new JObject
+            }))["userLiveId"];
+            var result = await CallUserApi("/live/" + liveid, HttpMethod.Put, new JObject
             {
                 ["score"] = score,
                 ["perfectCount"] = md.noteCount,
@@ -233,16 +238,16 @@ namespace SekaiClient
             return (int)result["afterEventPoint"];
         }
 
-        public int[] GetCards()
+        public async Task<int[]> GetCards()
         {
-            var data = CallApi($"/suite/user/{uid}", HttpMethod.Get, null);
+            var data = await CallApi($"/suite/user/{uid}", HttpMethod.Get, null);
 
             return data["userCards"].Select(t => t.Value<int>("cardId")).ToArray();
         }
 
-        public void ChangeDeck(int deckId, int[] cardIds)
+        public async Task ChangeDeck(int deckId, int[] cardIds)
         {
-            CallUserApi("/deck/" + deckId, HttpMethod.Put, new JObject
+            await CallUserApi("/deck/" + deckId, HttpMethod.Put, new JObject
             {
                 ["userId"] = uid,
                 ["deckId"] = deckId,

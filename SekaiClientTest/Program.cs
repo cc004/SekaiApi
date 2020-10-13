@@ -9,6 +9,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using SekaiClient;
@@ -19,9 +20,8 @@ namespace SekaiClientTest
     class Program
     {
         private static List<Account> accounts;
-        private static int i;
 
-        private static void Task()
+        private static async Task Task()
         {
             try
             {
@@ -29,16 +29,16 @@ namespace SekaiClientTest
                 var client = new SekaiClient.SekaiClient(new EnvironmentInfo());
                 client.InitializeAdid();
 
-                var user = client.Register();
-                client.Login(user);
-                client.PassTutorial();
-                var result = client.Gacha();
+                var user = await client.Register();
+                await client.Login(user);
+                await client.PassTutorial();
+                var result = await client.Gacha();
 
                 if (result != null)
                 {
+                    var account = await client.Serialize(result.Where(c => c.EndsWith("***")).ToArray());
                     lock (accounts)
                     {
-                        var account = client.Serialize(result.Where(c => c.EndsWith("***")).ToArray());
                         var star4s = result.Where(c => c.EndsWith("****")).ToArray();
                         account.nums = star4s.Length;
                         Console.WriteLine(string.Join("\n", star4s));
@@ -67,7 +67,7 @@ namespace SekaiClientTest
                 accounts = new List<Account>();
             }
 
-            
+            /*
             var client = new SekaiClient.SekaiClient(new EnvironmentInfo());
             client.InitializeAdid();
             //var user = client.Register();
@@ -105,31 +105,20 @@ namespace SekaiClientTest
                 return (flag1 ? (flag2 ? 0.5 : 0.2) : (flag2 ? 0.2 : 0)) + 0.0001 * card.rarity;
             })).Sum() * 100 + "%");
 
-            client.ChangeDeck(1, cards);*/
+            client.ChangeDeck(1, cards);
             Console.WriteLine(client.Inherit("1176321897"));
 
             while (true)
                 client.APLive(47, 1, 1, "master");
-            
+            */
             object @lock = new object();
+            Console.WriteLine(ThreadPool.SetMaxThreads(1000, 2000));
             SekaiClient.SekaiClient.DebugWrite = _ => { };
-            Enumerable.Range(0, 64).AsParallel().WithDegreeOfParallelism(64).ForAll(_ =>
-            {
-                int myi = 0;
-                while (true)
-                {
-                    lock (@lock)
-                    {
-                        i += 1;
-                        if (i % 100 == 0)
-                        {
-                            File.WriteAllText("count.txt", i.ToString());
-                            Console.WriteLine(i);
-                        }
-                    }
-                    Task();
-                }
-            });
+
+            for (int i = 0; i < 64; ++i)
+                ThreadPool.QueueUserWorkItem(async _ => { while (true) await Task(); });
+
+            Thread.Sleep(int.MaxValue);
         }
     }
 }
