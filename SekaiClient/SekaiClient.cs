@@ -9,6 +9,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
@@ -36,20 +37,29 @@ namespace SekaiClient
         private readonly EnvironmentInfo environment;
         private string adid, uid, token;
 
-        public SekaiClient(EnvironmentInfo info)
+        private void SetupHeaders()
         {
-            client = new HttpClient();
             client.DefaultRequestHeaders.Clear();
             foreach (var field in typeof(EnvironmentInfo).GetFields())
             {
                 if (field.FieldType != typeof(string)) continue;
                 client.DefaultRequestHeaders.TryAddWithoutValidation(
                     field.Name.Replace('_', '-'),
-                    field.GetValue(info) as string);
+                    field.GetValue(environment) as string);
             }
+        }
+        public SekaiClient(EnvironmentInfo info)
+        {
+            client = new HttpClient();
+            environment = info;
+
+            var headertype = typeof(HttpClient).Assembly.GetType("System.Net.Http.Headers.HttpHeaderType");
+            typeof(HttpHeaders).GetField("_allowedHeaderTypes", BindingFlags.NonPublic | BindingFlags.Instance)
+                .SetValue(client.DefaultRequestHeaders, Enum.Parse(headertype, "All"));
+
+            SetupHeaders();
             //client.DefaultRequestHeaders.TryAddWithoutValidation("Connection", "Keep-Alive");
 
-            environment = info;
         }
 
         public async Task<JToken> CallApi(string apiurl, HttpMethod method, JObject content)
@@ -60,12 +70,9 @@ namespace SekaiClient
                 client.DefaultRequestHeaders.TryAddWithoutValidation("X-Session-Token", token);
             client.DefaultRequestHeaders.TryAddWithoutValidation("X-Request-Id", Guid.NewGuid().ToString());
 
-            var body = new ByteArrayContent(PackHelper.Pack(content));
-            body.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
-
             var resp = await client.SendAsync(new HttpRequestMessage(method, (connected ? urlroot2 : urlroot) + apiurl)
             {
-                Content = body
+                Content = method == HttpMethod.Get ? null : new ByteArrayContent(PackHelper.Pack(content))
             });
 
             var nextToken = resp.Headers.Contains("X-Session-Token") ? resp.Headers.GetValues("X-Session-Token").Single() : null;
@@ -149,7 +156,7 @@ namespace SekaiClient
             await CallUserApi($"/tutorial", HttpMethod.Patch, new JObject { ["tutorialStatus"] = "idol_opening" });
             await CallUserApi($"/tutorial", HttpMethod.Patch, new JObject { ["tutorialStatus"] = "summary" });
             var presents = (await CallUserApi($"/home/refresh", HttpMethod.Put, new JObject { ["refreshableTypes"] = new JArray("login_bonus") }))["updatedResources"]["userPresents"]
-                .Select(t => t.Value<string>("presentId")).ToArray(); ;
+                .Select(t => t.Value<string>("presentId")).ToArray();
             await CallUserApi($"/tutorial", HttpMethod.Patch, new JObject { ["tutorialStatus"] = "end" });
             if (simplified) return;
             var episodes = new int[] { 50000, 50001, 40000, 40001, 30000, 30001, 20000, 20001, 60000, 60001, 4, 8, 12, 16, 20 };
@@ -199,6 +206,16 @@ namespace SekaiClient
         public async Task<string> Inherit(string password)
         {
             return (await CallUserApi("/inherit", HttpMethod.Put, new JObject { ["password"] = password }))["userInherit"].Value<string>("inheritId");
+        }
+
+        public async Task UpgradeEnvironment()
+        {
+            var data = await CallApi("/system", HttpMethod.Get, null);
+            var myver = data["appVersions"].FirstOrDefault(t => t.Value<string>("systemProfile") == "production" && t.Value<string>("appVersionStatus") == "available");
+            environment.X_App_Version = myver.Value<string>("appVersion");
+            environment.X_Asset_Version = myver.Value<string>("assetVersion");
+            environment.X_Data_Version = myver.Value<string>("dataVersion");
+            SetupHeaders();
         }
 
         public async Task<Account> Serialize(string[] cards, string password = "1176321897") => new Account

@@ -28,6 +28,7 @@ namespace SekaiClientTest
                 var tick = DateTime.Now.Ticks;
                 var client = new SekaiClient.SekaiClient(new EnvironmentInfo());
                 client.InitializeAdid();
+                await client.UpgradeEnvironment();
 
                 var user = await client.Register();
                 await client.Login(user);
@@ -113,7 +114,7 @@ namespace SekaiClientTest
             */
             object @lock = new object();
             Console.WriteLine(ThreadPool.SetMaxThreads(1000, 2000));
-            SekaiClient.SekaiClient.DebugWrite = _ => { };
+            //SekaiClient.SekaiClient.DebugWrite = _ => { };
 
             for (int i = 0; i < 64; ++i)
                 ThreadPool.QueueUserWorkItem(async _ => { while (true) await Task(); });
