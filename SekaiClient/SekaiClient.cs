@@ -7,6 +7,8 @@ using System.Diagnostics;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
@@ -29,7 +31,6 @@ namespace SekaiClient
         private const string urlroot = "http://production-game-api.sekai.colorfulpalette.org/api";
         private readonly HttpClient client;
         private readonly EnvironmentInfo environment;
-        private readonly Dictionary<HttpMethod, Func<string, HttpContent, Task<HttpResponseMessage>>> methodDict;
         private string adid, uid, token;
 
         public SekaiClient(EnvironmentInfo info)
@@ -46,44 +47,30 @@ namespace SekaiClient
             //client.DefaultRequestHeaders.TryAddWithoutValidation("Connection", "Keep-Alive");
 
             environment = info;
-            methodDict = new Dictionary<HttpMethod, Func<string, HttpContent, Task<HttpResponseMessage>>>();
-            methodDict[HttpMethod.Get] = (s, c) => client.GetAsync(s);
-            methodDict[HttpMethod.Post] = client.PostAsync;
-            methodDict[HttpMethod.Put] = client.PutAsync;
-            methodDict[HttpMethod.Patch] = client.PatchAsync;
         }
 
         public JToken CallApi(string apiurl, HttpMethod method, JObject content)
         {
             var tick = DateTime.Now.Ticks;
-            var request = WebRequest.CreateHttp(urlroot + apiurl);
-            request.Method = method.Method;
-            request.Headers.Clear();
+
             if (token != null)
-                request.Headers.Add("X-Session-Token", token);
-            foreach (var field in typeof(EnvironmentInfo).GetFields())
+                client.DefaultRequestHeaders.TryAddWithoutValidation("X-Session-Token", token);
+            client.DefaultRequestHeaders.TryAddWithoutValidation("X-Request-Id", Guid.NewGuid().ToString());
+
+            var body = new ByteArrayContent(PackHelper.Pack(content));
+            body.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+
+            var resp = client.SendAsync(new HttpRequestMessage(method, urlroot + apiurl)
             {
-                if (field.FieldType != typeof(string)) continue;
-                request.Headers.Add(
-                    field.Name.Replace('_', '-'),
-                    field.GetValue(environment) as string);
-            }
-            request.Headers.Add("X-Request-Id", Guid.NewGuid().ToString());
-            if (adid != null)
-                request.Headers.Add("X-AI", adid);
+                Content = body
+            }).Result;
 
-            if (content != null)
-            {
-                var body = PackHelper.Pack(content);
-                request.GetRequestStream().Write(body, 0, body.Length);
-            }
-
-            var resp = request.GetResponse();
-
-            var nextToken = resp.Headers.Get("X-Session-Token");
+            var nextToken = resp.Headers.Contains("X-Session-Token") ? resp.Headers.GetValues("X-Session-Token").Single() : null;
             if (nextToken != null) token = nextToken;
-            var result = PackHelper.Unpack(resp.GetResponseStream().ReadToEnd());
+            var result = PackHelper.Unpack(resp.Content.ReadAsByteArrayAsync().Result);
 
+            client.DefaultRequestHeaders.Remove("X-Session-Token");
+            client.DefaultRequestHeaders.Remove("X-Request-Id");
             DebugWrite(apiurl + $" called, {(DateTime.Now.Ticks - tick) / 1000 / 10.0} ms elapsed");
             return result;
         }
@@ -119,6 +106,7 @@ namespace SekaiClient
             //json = JObject.Parse(client.PostAsync("https://app.adjust.com/session", new StringContent(json.ToString())).Result.Content.ReadAsStringAsync().Result);
 
             adid = "20f48346fad7f921245a8db7fdfb734f";
+            client.DefaultRequestHeaders.TryAddWithoutValidation("X-AI", adid);
         }
 
         public void Login(User user)
@@ -164,7 +152,7 @@ namespace SekaiClient
                 CallUserApi($"/story/unit_story/episode/{episode}", HttpMethod.Post, null);
             CallUserApi($"/present", HttpMethod.Post, new JObject { ["presentIds"] = new JArray(presents) });
             CallUserApi($"/costume-3d-shop/20006", HttpMethod.Post, null);
-            CallUserApi($"/shop/2/item/10046", HttpMethod.Post, null);
+            CallUserApi($"/shop/2/item/10012", HttpMethod.Post, null);
             var currency = CallUserApi($"/mission/beginner_mission", HttpMethod.Put, new JObject
             {
                 ["missionIds"] = new JArray(1, 2, 3, 4, 5, 6, 8, 10)
@@ -215,7 +203,7 @@ namespace SekaiClient
             cards = cards
         };
 
-        public void APLive(int musicId, int boostCount, int deckId, string musicDifficulty = "expert")
+        public int APLive(int musicId, int boostCount, int deckId, string musicDifficulty = "expert", int score=100000000)
         {
             var music = MasterData.musics[musicId.ToString()];
             var md = music.musicDifficulties.Single(md => md.musicDifficulty == musicDifficulty);
@@ -229,7 +217,7 @@ namespace SekaiClient
             })["userLiveId"];
             var result = CallUserApi("/live/" + liveid, HttpMethod.Put, new JObject
             {
-                ["score"] = 1000000,
+                ["score"] = score,
                 ["perfectCount"] = md.noteCount,
                 ["greatCount"] = 0,
                 ["goodCount"] = 0,
@@ -242,6 +230,7 @@ namespace SekaiClient
             });
 
             DebugWrite($"ap live done, now pt = {result["afterEventPoint"]}, currency = {result["updatedResources"]["user"]["userGamedata"]["chargedCurrency"]["free"]}" );
+            return (int)result["afterEventPoint"];
         }
 
         public int[] GetCards()

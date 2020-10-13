@@ -37,7 +37,7 @@ namespace SekaiClient
             aes.Mode = CipherMode.CBC;
             aes.Padding = PaddingMode.PKCS7;
 
-            var decrypted = MessagePackSerializer.ConvertFromJson(content.ToString());
+            var decrypted = content == null ? Array.Empty<byte>() : MessagePackSerializer.ConvertFromJson(content.ToString());
             return aes.CreateEncryptor().TransformFinalBlock(decrypted, 0, decrypted.Length);
         }
     }

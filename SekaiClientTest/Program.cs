@@ -19,11 +19,13 @@ namespace SekaiClientTest
     class Program
     {
         private static List<Account> accounts;
+        private static int i;
 
         private static void Task()
         {
             try
             {
+                var tick = DateTime.Now.Ticks;
                 var client = new SekaiClient.SekaiClient(new EnvironmentInfo());
                 client.InitializeAdid();
 
@@ -46,6 +48,7 @@ namespace SekaiClientTest
                             File.WriteAllText("accounts.json", JsonConvert.SerializeObject(accounts, Formatting.Indented));
                     }
                 }
+                //Console.WriteLine($"task done, {(DateTime.Now.Ticks - tick) / 1000 / 10.0}ms elapsed");
             }
             catch (Exception e)
             {
@@ -64,17 +67,18 @@ namespace SekaiClientTest
                 accounts = new List<Account>();
             }
 
-            /*
+            
             var client = new SekaiClient.SekaiClient(new EnvironmentInfo());
             client.InitializeAdid();
-            var user = client.Register();
+            //var user = client.Register();
+            var user = JsonConvert.DeserializeObject<User>(File.ReadAllText("user.json"));
             File.WriteAllText("user.json", JsonConvert.SerializeObject(user));
             client.Login(user);
-            client.PassTutorial();
-            client.Gacha();
+            //client.PassTutorial();
+            //client.Gacha();
             var clist = new HashSet<int> { 1, 2, 3, 4, 24 };
             var chlist = new HashSet<int>();
-
+            /*
             var cards = client.GetCards().OrderByDescending(id =>
             {
                 var card = MasterData.cards[id.ToString()];
@@ -93,16 +97,39 @@ namespace SekaiClientTest
                 }
             }).ToArray();
 
-            client.ChangeDeck(1, cards);
-            Console.WriteLine(client.Inherit("1176321897"));
-            while (true)
+            Console.WriteLine("bonus : " + cards.Take(5).Select((id =>
             {
-                client.APLive(82, 0, 1);
-            }
-            */
+                var card = MasterData.cards[id.ToString()];
+                var flag1 = clist.Contains(card.characterId);
+                var flag2 = card.attr == "mysterious";
+                return (flag1 ? (flag2 ? 0.5 : 0.2) : (flag2 ? 0.2 : 0)) + 0.0001 * card.rarity;
+            })).Sum() * 100 + "%");
+
+            client.ChangeDeck(1, cards);*/
+            Console.WriteLine(client.Inherit("1176321897"));
+
+            while (true)
+                client.APLive(47, 1, 1, "master");
             
+            object @lock = new object();
             SekaiClient.SekaiClient.DebugWrite = _ => { };
-            Enumerable.Range(0, 50).AsParallel().ForAll(_ => { while (true) Task(); });
+            Enumerable.Range(0, 64).AsParallel().WithDegreeOfParallelism(64).ForAll(_ =>
+            {
+                int myi = 0;
+                while (true)
+                {
+                    lock (@lock)
+                    {
+                        i += 1;
+                        if (i % 100 == 0)
+                        {
+                            File.WriteAllText("count.txt", i.ToString());
+                            Console.WriteLine(i);
+                        }
+                    }
+                    Task();
+                }
+            });
         }
     }
 }

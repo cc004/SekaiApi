@@ -8,7 +8,6 @@ namespace SekaiClient
 {
     public class EnvironmentInfo
     {
-        public string Content_Type = "application/octet-stream";
         public string Accept = "application/octet-stream";
         public string Accept_Encoding = "deflate, gzip";
         public string Host = "production-game-api.sekai.colorfulpalette.org";
