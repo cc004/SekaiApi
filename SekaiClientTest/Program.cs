@@ -32,8 +32,8 @@ namespace SekaiClientTest
 
                 var user = await client.Register();
                 await client.Login(user);
-                await client.PassTutorial();
-                var result = await client.Gacha();
+                var currency = await client.PassTutorial();
+                var result = await client.Gacha(currency);
 
                 if (result != null)
                 {
@@ -57,32 +57,32 @@ namespace SekaiClientTest
             }
         }
 
-        static void Main(string[] args)
+        private static async Task APLive()
         {
+            SekaiClient.SekaiClient.DebugWrite = _ => { };
+            var client = new SekaiClient.SekaiClient(new EnvironmentInfo());
+            client.InitializeAdid();
+            User user;
             try
             {
-                accounts = JsonConvert.DeserializeObject<List<Account>>(File.ReadAllText("accounts.json"));
+                user = JsonConvert.DeserializeObject<User>(File.ReadAllText("user.json"));
+                throw new Exception();
             }
             catch
             {
-                accounts = new List<Account>();
+                user = await client.Register();
             }
-
-            /*
-            var client = new SekaiClient.SekaiClient(new EnvironmentInfo());
-            client.InitializeAdid();
-            //var user = client.Register();
-            var user = JsonConvert.DeserializeObject<User>(File.ReadAllText("user.json"));
             File.WriteAllText("user.json", JsonConvert.SerializeObject(user));
-            client.Login(user);
-            //client.PassTutorial();
-            //client.Gacha();
+            await client.UpgradeEnvironment();
+            await client.Login(user);
+            await client.PassTutorial(true);
+            //await client.Gacha();
             var clist = new HashSet<int> { 1, 2, 3, 4, 24 };
             var chlist = new HashSet<int>();
             /*
-            var cards = client.GetCards().OrderByDescending(id =>
+            var cards = (await client.GetCards()).OrderByDescending(id =>
             {
-                var card = MasterData.cards[id.ToString()];
+                var card = MasterData.Instance.cards[id.ToString()];
                 var flag1 = clist.Contains(card.characterId);
                 var flag2 = card.attr == "mysterious";
                 return (flag1 ? (flag2 ? 0.5 : 0.2) : (flag2 ? 0.2 : 0)) + 0.0001 * card.rarity;
@@ -106,15 +106,62 @@ namespace SekaiClientTest
                 return (flag1 ? (flag2 ? 0.5 : 0.2) : (flag2 ? 0.2 : 0)) + 0.0001 * card.rarity;
             })).Sum() * 100 + "%");
 
-            client.ChangeDeck(1, cards);
-            Console.WriteLine(client.Inherit("1176321897"));
+            await client.ChangeDeck(1, cards);*/
+            Console.WriteLine(await client.Inherit("1176321897"));
 
-            while (true)
-                client.APLive(47, 1, 1, "master");
-            */
-            object @lock = new object();
-            Console.WriteLine(ThreadPool.SetMaxThreads(1000, 2000));
-            //SekaiClient.SekaiClient.DebugWrite = _ => { };
+            await client.APLive(47, 0, 1, "expert", 100000);
+            Environment.Exit(1);
+
+            var last = 0;
+
+            for (int i = 0; i < 200; ++i)
+            {
+                try
+                {
+                    var pt = await client.APLive(i, 0, 1);
+                    Console.WriteLine($"{i},{pt}");
+                }
+                catch (Exception e)
+                {
+                    //Console.WriteLine(e);
+                }
+            }
+
+
+        }
+
+        static async Task AsyncMain()
+        {
+            var client = new SekaiClient.SekaiClient(new EnvironmentInfo());
+            var user = await client.Register();
+            await client.Login(user);
+            Console.WriteLine(client.AssetHash);
+        }
+
+        static void Main(string[] args)
+        {
+            try
+            {
+                accounts = JsonConvert.DeserializeObject<List<Account>>(File.ReadAllText("accounts.json"));
+            }
+            catch
+            {
+                accounts = new List<Account>();
+            }
+
+            //AsyncMain().Wait();
+
+            //Console.ReadLine();
+
+            //APLive().Wait();
+
+            var client = new SekaiClient.SekaiClient(new EnvironmentInfo());
+            client.UpgradeEnvironment().Wait();
+            client.Login(client.Register().Result).Wait();
+            MasterData.Initialize(client).Wait();
+
+            ThreadPool.SetMaxThreads(1000, 2000);
+            SekaiClient.SekaiClient.DebugWrite = _ => { };
 
             for (int i = 0; i < 64; ++i)
                 ThreadPool.QueueUserWorkItem(async _ => { while (true) await Task(); });
