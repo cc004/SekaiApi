@@ -11,6 +11,12 @@ using System.Threading.Tasks;
 namespace SekaiClient.Datas
 {
     [JsonObject]
+    public class Event
+    {
+        public int id;
+    }
+
+    [JsonObject]
     public class MusicDifficulty
     {
         public string musicDifficulty;
@@ -55,12 +61,23 @@ namespace SekaiClient.Datas
         public long startAt, endAt;
         public int id;
         public GachaBehaviour[] gachaBehaviors;
+
+        public bool IsAvailable
+        {
+            get
+            {
+                var ts = DateTime.Now.GetTimestamp();
+                return ts >= startAt && ts <= endAt;
+            }
+        }
     }
 
     [JsonObject]
     public class GachaBehaviour
     {
         public int id, gachaId, costResourceQuantity;
+
+        public Gacha Gacha => MasterData.Instance.gachas.Single(ga => ga.id == gachaId);
     }
 
     [JsonObject]
@@ -73,6 +90,7 @@ namespace SekaiClient.Datas
         public Gacha[] gachas;
         public MusicDifficulty[] musicDifficulties;
         public MusicVocal[] musicVocals;
+        public Event[] events;
 
         [JsonIgnore]
         public GachaBehaviour[] gachaBehaviours;

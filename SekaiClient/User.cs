@@ -9,5 +9,10 @@ namespace SekaiClient
     public class User
     {
         public string uid, credit;
+
+        public override string ToString()
+        {
+            return $"uid={uid}, credit={credit}";
+        }
     }
 }

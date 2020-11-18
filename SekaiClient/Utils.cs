@@ -12,6 +12,27 @@ namespace SekaiClient
 {
     public static class Utils
     {
+        public static byte[] ReadToEnd(this Stream stream)
+        {
+            const int bufferSize = 4096;
+            using var ms = new MemoryStream();
+            byte[] buffer = new byte[bufferSize];
+            int count;
+            while ((count = stream.Read(buffer, 0, buffer.Length)) != 0)
+                ms.Write(buffer, 0, count);
+            return ms.ToArray();
+        }
+
+        public static string PadRightEx(this string str, int length)
+        {
+            return str + new string(Enumerable.Range(0, Math.Max(0, length - str.Sum(c => c > 127 ? 2 : 1))).Select(_ => ' ').ToArray());
+        }
+
+        public static long GetTimestamp(this DateTime time)
+        {
+            return (time.ToUniversalTime().Ticks - 621355968000000000) / 10000;
+        }
+
         public static List<T> SortRandom<T>(this IEnumerable<T> collection)
         {
             List<T> result = new List<T>();

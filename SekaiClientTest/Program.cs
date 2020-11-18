@@ -37,7 +37,7 @@ namespace SekaiClientTest
 
                 if (result != null)
                 {
-                    var account = await client.Serialize(result.Where(c => c.EndsWith("***")).ToArray());
+                    var account = client.Serialize(result.Where(c => c.EndsWith("***")).ToArray());
                     lock (accounts)
                     {
                         var star4s = result.Where(c => c.EndsWith("****")).ToArray();
@@ -157,13 +157,24 @@ namespace SekaiClientTest
 
             var client = new SekaiClient.SekaiClient(new EnvironmentInfo());
             client.UpgradeEnvironment().Wait();
-            client.Login(client.Register().Result).Wait();
+
+            client.Login(new User
+            {
+                uid = "16395467458048004",
+                credit = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJjcmVkZW50aWFsIjoiZDMxYTAwN2UtMDIwZi00NWU5LWFmZDAtMGRkZmQyOWU0NTA3IiwidXNlcklkIjoiMTYzOTU0Njc0NTgwNDgwMDQifQ.TLhZL-cVTV37edr1ZhGq_GBVl-aEhdHjJF5CwOpAMjQ"
+            }).Wait();
+
+            //client.Login(client.Register().Result).Wait();
             MasterData.Initialize(client).Wait();
 
-            ThreadPool.SetMaxThreads(1000, 2000);
-            SekaiClient.SekaiClient.DebugWrite = _ => { };
+            //Console.WriteLine(JsonConvert.SerializeObject(client.Inherit("123478").Result));
 
-            for (int i = 0; i < 64; ++i)
+            //client.PassTutorial(true).Wait();
+
+            ThreadPool.SetMaxThreads(1000, 2000);
+            //SekaiClient.SekaiClient.DebugWrite = _ => { };
+
+            for (int i = 0; i < 1; ++i)
                 ThreadPool.QueueUserWorkItem(async _ => { while (true) await Task(); });
 
             Thread.Sleep(int.MaxValue);

@@ -35,6 +35,7 @@ namespace SekaiClient
         private bool connected = false;
         private readonly HttpClient client;
         private string adid, uid, token;
+        private User account;
         internal readonly EnvironmentInfo environment;
 
         public string AssetHash { get; private set; }
@@ -156,6 +157,7 @@ namespace SekaiClient
         public async Task Login(User user)
         {
             uid = user.uid;
+            account = user;
             var json = await CallUserApi($"/auth?refreshUpdatedResources=False", HttpMethod.Put, new JObject
             {
                 ["credential"] = user.credit
@@ -220,7 +222,8 @@ namespace SekaiClient
 
             var rolls = MasterData.Instance.gachaBehaviours
                 .GroupBy(b => b.costResourceQuantity)
-                .Select(g => g.OrderByDescending(b => MasterData.Instance.gachas.Single(ga => ga.id == b.gachaId).endAt).First());
+                .Select(g => g.Where(b => b.Gacha.IsAvailable).OrderByDescending(b => b.Gacha.endAt).FirstOrDefault())
+                .Where(g => g!=null).ToArray();
 
             var roll10 = rolls.Single(b => b.costResourceQuantity == 3000);
             var roll1 = rolls.Single(b => b.costResourceQuantity == 300);
@@ -273,10 +276,9 @@ namespace SekaiClient
             SetupHeaders();
         }
 
-        public async Task<Account> Serialize(string[] cards, string password = "1176321897") => new Account
+        public Account Serialize(string[] cards) => new Account
         {
-            inheritId = await Inherit(password),
-            password = password,
+            account = account,
             cards = cards
         };
 
