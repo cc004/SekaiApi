@@ -23,7 +23,7 @@ namespace SekaiClientTest
 
         private static async Task Task()
         {
-            try
+            //try
             {
                 var tick = DateTime.Now.Ticks;
                 var client = new SekaiClient.SekaiClient(new EnvironmentInfo());
@@ -51,9 +51,9 @@ namespace SekaiClientTest
                 }
                 //Console.WriteLine($"task done, {(DateTime.Now.Ticks - tick) / 1000 / 10.0}ms elapsed");
             }
-            catch (Exception e)
+            //catch (Exception e)
             {
-                Console.WriteLine(e.ToString());
+            //    Console.WriteLine(e.ToString());
             }
         }
 
@@ -140,6 +140,16 @@ namespace SekaiClientTest
 
         static void Main(string[] args)
         {
+
+            var client = new SekaiClient.SekaiClient(new EnvironmentInfo());
+            client.UpgradeEnvironment().Wait();
+            MasterData.Initialize(client).Wait();
+
+            Task().Wait();
+
+            Console.ReadLine();
+
+            /*
             try
             {
                 accounts = JsonConvert.DeserializeObject<List<Account>>(File.ReadAllText("accounts.json"));
@@ -177,7 +187,7 @@ namespace SekaiClientTest
             for (int i = 0; i < 1; ++i)
                 ThreadPool.QueueUserWorkItem(async _ => { while (true) await Task(); });
 
-            Thread.Sleep(int.MaxValue);
+            Thread.Sleep(int.MaxValue);*/
         }
     }
 }

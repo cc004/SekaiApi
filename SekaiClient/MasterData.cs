@@ -61,15 +61,23 @@ namespace SekaiClient.Datas
         public long startAt, endAt;
         public int id;
         public GachaBehaviour[] gachaBehaviors;
+        public GachaType gachaType;
 
         public bool IsAvailable
         {
             get
             {
                 var ts = DateTime.Now.GetTimestamp();
-                return ts >= startAt && ts <= endAt;
+                return ts >= startAt && ts <= endAt && gachaType != GachaType.beginner;
             }
         }
+    }
+
+    public enum GachaType
+    {
+        normal = 0,
+        beginner = 2,
+        ceil = 1
     }
 
     [JsonObject]
