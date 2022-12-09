@@ -9,7 +9,8 @@ namespace SekaiClient
     [JsonObject]
     public class Account
     {
-        public User account;
+        public string password;
+        public string inheritId;
         public int nums;
         public string[] cards;
     }

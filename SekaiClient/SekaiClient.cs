@@ -2,6 +2,7 @@
 using Newtonsoft.Json.Linq;
 using SekaiClient.Datas;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -22,12 +23,7 @@ namespace SekaiClient
 {
     public class SekaiClient
     {
-        public static Action<string> DebugWrite = text =>
-        {
-            var stack = new StackTrace();
-            var method = stack.GetFrame(1).GetMethod();
-            Console.WriteLine($"[{method.DeclaringType.Name}::{method.Name}]".PadRight(32) + text);
-        };
+        public Action<string> DebugWrite = text => { };
 
         private const string urlroot = "http://production-game-api.sekai.colorfulpalette.org/api";
         private const string urlroot2 = "https://production-game-api.sekai.colorfulpalette.org/api";
@@ -35,8 +31,28 @@ namespace SekaiClient
         private bool connected = false;
         private readonly HttpClient client;
         private string adid, uid, token;
-        private User account;
         internal readonly EnvironmentInfo environment;
+        
+        private static readonly BlockingCollection<SekaiClient> _staticClients = new ();
+        public static SekaiClient GetClient()
+        {
+            if (!_staticClients.TryTake(out var _staticClient))
+            {
+                _staticClient = new SekaiClient(new EnvironmentInfo())
+                {
+                    DebugWrite = Console.WriteLine
+                };
+                _staticClient.Reset().Wait();
+
+            }
+
+            return _staticClient;
+        }
+
+        public static void PutClient(SekaiClient client)
+        {
+            _staticClients.Add(client);
+        }
 
         public string AssetHash { get; private set; }
 
@@ -51,6 +67,19 @@ namespace SekaiClient
                     field.GetValue(environment) as string);
             }
         }
+
+        public async Task Reset()
+        {
+            InitializeAdid();
+            await UpgradeEnvironment();
+            var user = await Register();
+            await Login(user);
+            await MasterData.Initialize(this);
+            await PassTutorial(true);
+        }
+
+        private CookieContainer cookie = new ();
+        
         public SekaiClient(EnvironmentInfo info, bool useProxy = false)
         {
             var headertype = typeof(HttpClient).Assembly.GetType("System.Net.Http.Headers.HttpHeaderType");
@@ -58,34 +87,15 @@ namespace SekaiClient
 
             if (useProxy)
             {
-                var pool = new ProxyPool();
-                pool.GetProxysFromAPIs();
-                foreach (var proxy in pool.proxys)
-                {
-                    try
-                    {
-                        client = new HttpClient(new HttpClientHandler
-                        {
-                            Proxy = new WebProxy(proxy.ToString())
-                        });
-                        client.Timeout = new TimeSpan(0, 0, 5);
-                        typeof(HttpHeaders).GetField("_allowedHeaderTypes", BindingFlags.NonPublic | BindingFlags.Instance)
-                            .SetValue(client.DefaultRequestHeaders, Enum.Parse(headertype, "All"));
-
-                        SetupHeaders();
-                        Register().Wait();
-                    }
-                    catch (Exception e)
-                    {
-                        Console.WriteLine(e.ToString());
-                    }
-                }
-
                 throw new Exception("No proxy");
             }
             else
             {
-                client = new HttpClient();
+                client = new HttpClient(new HttpClientHandler
+                {
+                    CookieContainer = cookie
+                });
+                client.Timeout = new TimeSpan(0, 10, 0);
                 typeof(HttpHeaders).GetField("_allowedHeaderTypes", BindingFlags.NonPublic | BindingFlags.Instance)
                     .SetValue(client.DefaultRequestHeaders, Enum.Parse(headertype, "All"));
                 SetupHeaders();
@@ -97,27 +107,71 @@ namespace SekaiClient
 
         public async Task<JToken> CallApi(string apiurl, HttpMethod method, JObject content)
         {
-            var tick = DateTime.Now.Ticks;
-
             if (token != null)
                 client.DefaultRequestHeaders.TryAddWithoutValidation("X-Session-Token", token);
             client.DefaultRequestHeaders.TryAddWithoutValidation("X-Request-Id", Guid.NewGuid().ToString());
 
-            var resp = await client.SendAsync(new HttpRequestMessage(method, (connected ? urlroot2 : urlroot) + apiurl)
+            try
             {
-                Content = method == HttpMethod.Get ? null : new ByteArrayContent(PackHelper.Pack(content))
-            });
 
-            var nextToken = resp.Headers.Contains("X-Session-Token") ? resp.Headers.GetValues("X-Session-Token").Single() : null;
-            if (nextToken != null) token = nextToken;
-            var result = PackHelper.Unpack(await resp.Content.ReadAsByteArrayAsync());
+                var tick = DateTime.Now.Ticks;
 
-            client.DefaultRequestHeaders.Remove("X-Session-Token");
-            client.DefaultRequestHeaders.Remove("X-Request-Id");
-            connected = true;
 
-            DebugWrite(apiurl + $" called, {(DateTime.Now.Ticks - tick) / 1000 / 10.0} ms elapsed");
-            return result;
+                HttpResponseMessage resp;
+
+                try
+                {
+                    resp = await client.SendAsync(
+                        new HttpRequestMessage(method, (connected ? urlroot2 : urlroot) + apiurl)
+                        {
+                            Content = method == HttpMethod.Get ? null : new ByteArrayContent(PackHelper.Pack(content))
+                        });
+                }
+                catch (AggregateException)
+                {
+                    throw new ApiException($"与服务器通信时发生错误, 请求超时");
+                }
+
+                if (!resp.IsSuccessStatusCode)
+                {
+                    if (resp.StatusCode == HttpStatusCode.UpgradeRequired)
+                    {
+                        DebugWrite(
+                            $"api failed with header = {string.Join("\n", client.DefaultRequestHeaders.Select(pair => $"{pair.Key}={string.Join(",", pair.Value)}"))}");
+                    }
+
+                    if (resp.StatusCode == HttpStatusCode.Forbidden)
+                    {
+                        DebugWrite("Cookie expired, refreshing...");
+
+                        client.DefaultRequestHeaders.Remove("Cookie");
+                        resp = await client.PostAsync(
+                            "https://issue.sekai.colorfulpalette.org/api/signature",
+                            new ByteArrayContent(PackHelper.Pack(null))
+                            );
+                        foreach (var cookie in resp.Headers.GetValues("Set-Cookie").First().Split(';'))
+                            this.cookie.SetCookies(new Uri(urlroot), cookie);
+                        return await CallApi(apiurl, method, content);
+                    }
+                    throw new ApiException($"与服务器通信时发生错误, HTTP {(int) resp.StatusCode} {resp.StatusCode}");
+                }
+
+                var nextToken = resp.Headers.Contains("X-Session-Token")
+                    ? resp.Headers.GetValues("X-Session-Token").Single()
+                    : null;
+                if (nextToken != null) token = nextToken;
+                var result = PackHelper.Unpack(await resp.Content.ReadAsByteArrayAsync());
+
+                connected = true;
+
+                DebugWrite(apiurl + $" called, {(DateTime.Now.Ticks - tick) / 1000 / 10.0} ms elapsed");
+                return result;
+            }
+            finally
+            {
+                client.DefaultRequestHeaders.Remove("X-Session-Token");
+                client.DefaultRequestHeaders.Remove("X-Request-Id");
+            }
         }
 
         public async Task<JToken> CallUserApi(string apiurl, HttpMethod method, JObject content)
@@ -157,7 +211,6 @@ namespace SekaiClient
         public async Task Login(User user)
         {
             uid = user.uid;
-            account = user;
             var json = await CallUserApi($"/auth?refreshUpdatedResources=False", HttpMethod.Put, new JObject
             {
                 ["credential"] = user.credit
@@ -221,36 +274,38 @@ namespace SekaiClient
             IEnumerable<Card> icards = new Card[0];
 
             var rolls = MasterData.Instance.gachaBehaviours
-                .GroupBy(b => b.costResourceQuantity)
-                .Select(g => g.Where(b => b.Gacha.IsAvailable).OrderByDescending(b => b.Gacha.endAt).FirstOrDefault())
-                .Where(g => g!=null).ToArray();
+                .GroupBy(b => (b.costResourceQuantity, b.costResourceType))
+                .Select(g => g.Where(b => b.Gacha.IsAvailable)
+                    .OrderByDescending(b => b.Gacha.rarity4Rate)
+                    .ThenByDescending(b => b.Gacha.endAt).FirstOrDefault())
+                .Where(g => g != null).ToArray();
 
-            var roll10 = rolls.Single(b => b.costResourceQuantity == 3000);
-            var roll1 = rolls.Single(b => b.costResourceQuantity == 300);
-            var roll3 = rolls.Single(b => b.costResourceQuantity == 1);
+            var roll10 = rolls.Single(b => b.costResourceQuantity == 3000 && b.costResourceType == CostResourceType.jewel);
+            var roll1 = rolls.Single(b => b.costResourceQuantity == 300 && b.costResourceType == CostResourceType.jewel);
+            var roll3 = rolls.Single(b => b.costResourceQuantity == 1 && b.costResourceType == CostResourceType.gacha_ticket);
 
-            icards = await Gacha(roll3);
+            //icards = await Gacha(roll3);
+            
+            icards = Array.Empty<Card>();
 
             while (currency > 3000)
             {
                 currency -= 3000;
                 icards = icards.Concat(await Gacha(roll10));
             }
-
+            /*
             while (currency > 300)
             {
                 currency -= 300;
                 icards = icards.Concat(await Gacha(roll1));
-            }
+            }*/
             var cards = icards.ToArray();
             var desc = cards
                 .Select(card =>
                 {
                     var character = MasterData.Instance.gameCharacters.Single(gc => gc.id == card.characterId);
                     var skill = MasterData.Instance.skills.Single(s => s.id == card.skillId);
-                    return $"[{card.prefix}]".PadRightEx(30) + $"[{card.attr}]".PadRightEx(12) +
-                        $"({character.gender.First()}){character.firstName}{character.givenName}".PadRightEx(20) +
-                        skill.descriptionSpriteName.PadRightEx(20) + new string(Enumerable.Range(0, card.rarity).Select(_ => '*').ToArray());
+                    return $"[{card.prefix}]{character.firstName}{character.givenName} " + new string(Enumerable.Range(0, card.rarity).Select(_ => '*').ToArray());
                 }).ToArray();
 
             DebugWrite($"gacha result:\n" + string.Join('\n', desc));
@@ -258,7 +313,7 @@ namespace SekaiClient
             foreach (var card in cards) ++rares[card.rarity];
             if (rares[4] > 1)
                 Console.WriteLine($"gacha result: {rares[4]}, {rares[3]}, {rares[2]}");
-            return cards.Sum(card => card.rarity == 4 ? 1 : 0) > 2 ? desc : null;
+            return desc;
         }
 
         public async Task<string> Inherit(string password)
@@ -273,12 +328,14 @@ namespace SekaiClient
             environment.X_App_Version = myver.Value<string>("appVersion");
             environment.X_Asset_Version = myver.Value<string>("assetVersion");
             environment.X_Data_Version = myver.Value<string>("dataVersion");
+            DebugWrite($"using ver={myver}");
             SetupHeaders();
         }
 
-        public Account Serialize(string[] cards) => new Account
+        public async Task<Account> Serialize(string[] cards, string password = "") => new Account
         {
-            account = account,
+            inheritId = await Inherit(password),
+            password = password,
             cards = cards
         };
 

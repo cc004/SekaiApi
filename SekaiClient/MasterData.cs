@@ -14,6 +14,7 @@ namespace SekaiClient.Datas
     public class Event
     {
         public int id;
+        public long startAt, aggregateAt;
     }
 
     [JsonObject]
@@ -55,14 +56,22 @@ namespace SekaiClient.Datas
         public string descriptionSpriteName;
     }
 
+    public enum GachaType
+    {
+        normal = 0,
+        beginner = 2,
+        ceil = 1,
+        gift=2,
+    }
+
     [JsonObject]
     public class Gacha
     {
         public long startAt, endAt;
         public int id;
+        public float rarity4Rate;
         public GachaBehaviour[] gachaBehaviors;
         public GachaType gachaType;
-
         public bool IsAvailable
         {
             get
@@ -73,18 +82,18 @@ namespace SekaiClient.Datas
         }
     }
 
-    public enum GachaType
+    public enum CostResourceType
     {
-        normal = 0,
-        beginner = 2,
-        ceil = 1
+        paid_jewel = 0,
+        jewel = 1,
+        gacha_ticket = 2
     }
 
     [JsonObject]
     public class GachaBehaviour
     {
         public int id, gachaId, costResourceQuantity;
-
+        public CostResourceType costResourceType;
         public Gacha Gacha => MasterData.Instance.gachas.Single(ga => ga.id == gachaId);
     }
 
@@ -100,14 +109,18 @@ namespace SekaiClient.Datas
         public MusicVocal[] musicVocals;
         public Event[] events;
 
+        private static long Timestamp => (DateTime.Now.ToUniversalTime().Ticks - 621355968000000000) / 10000;
+
         [JsonIgnore]
         public GachaBehaviour[] gachaBehaviours;
 
         public static MasterData Instance { get; private set; }
 
+        public Event CurrentEvent => events.LastOrDefault(e => e.startAt < Timestamp) ?? events.Last();
+
         public static async Task Initialize(SekaiClient client)
         {
-            var fn = client.environment.X_Data_Version + ".json";
+            var fn = $"Data\\{client.environment.X_Data_Version}.json";
 
             try
             {
