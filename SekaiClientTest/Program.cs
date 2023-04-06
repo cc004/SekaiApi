@@ -107,7 +107,7 @@ namespace SekaiClientTest
             })).Sum() * 100 + "%");
 
             await client.ChangeDeck(1, cards);*/
-            Console.WriteLine(await client.Inherit("1176321897"));
+            Console.WriteLine(await client.Inherit("1111111111"));
 
             await client.APLive(47, 0, 1, "expert", 100000);
             Environment.Exit(1);
